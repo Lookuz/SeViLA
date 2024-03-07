@@ -317,7 +317,8 @@ class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
             height=self.image_size,
             width=self.image_size,
             sampling="random",
-            clip_proposal=clip_proposal
+            clip_proposal=clip_proposal,
+            return_indices=True
         )
 
         return self.transform(clip), indices, fps
@@ -369,7 +370,8 @@ class BlipVideoEvalProcessor(BlipVideoBaseProcessor):
             height=self.image_size,
             width=self.image_size,
             sampling="uniform",
-            clip_proposal=clip_proposal
+            clip_proposal=clip_proposal,
+            return_indices=True
         )
 
         return self.transform(clip), indices, fps

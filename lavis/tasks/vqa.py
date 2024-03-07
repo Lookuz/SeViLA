@@ -18,6 +18,7 @@ from lavis.common.vqa_tools.vqa import VQA
 from lavis.common.vqa_tools.vqa_eval import VQAEval
 from lavis.tasks.base_task import BaseTask
 from lavis.common.dist_utils import main_process
+from lavis.common.const import *
 
 @registry.register_task("vqa")
 class VQATask(BaseTask):
@@ -417,89 +418,96 @@ class FrameQA(BaseTask):
 
 @registry.register_task("videoqa")
 class VideoQA(BaseTask):
-    def __init__(self):
-        super().__init__()
-        self.ANS_MAPPING = {'A':0, 'B':1, 'C':2, 'D':3, 'E':4}
+    def __init__(self, 
+        # Generation hyperparameters
+        do_sample=False,
+        top_p=0.9,
+        temperature=1.,
+        max_new_tokens=30,
+        min_length=1,
+        num_beams=1,
+        repetition_penalty=1.,
+        length_penalty=1.,
+        num_return_sequences=1, **kwargs):
+        super().__init__(**kwargs)
+
+        self.do_sample = do_sample
+        self.top_p = top_p
+        self.temperature = temperature
+        self.max_new_tokens = max_new_tokens
+        self.min_length = min_length
+        self.num_beams = num_beams
+        self.repetition_penalty = repetition_penalty
+        self.length_penalty = length_penalty
+        self.num_return_sequences = num_return_sequences
+
+        self.label_mapping = SEVILA_ANSWER_MAP
 
     def valid_step(self, model, samples):
-        results = []
+        outputs = model.predict_answers(samples)
 
-        outputs = model.generate(samples)
+        answer, qid, output_text = outputs["answer"], outputs["qid"], outputs['output_text']
+        frame_idx = [0 for i in range(len(qid))]
 
-        answer = outputs["answer"]
-        qid = outputs["qid"]
-        output_text = outputs['output_text']
-        if 'frame_idx' in outputs:
-            frame_idx = outputs['frame_idx']
-        else:
-            frame_idx = [0 for i in range(len(qid))]
-        # print(qid)
-        # print(len(output_text), output_text)
-        assert len(qid)==len(output_text)
-        assert len(qid)==len(answer) 
-        
-        for a, q, o, f in zip(answer, qid, output_text, frame_idx):
-            # l =  l[self.ANS_MAPPING[a[-1]]]
-            results.append(
-                {
-                    "qid": q,
-                    "prediction": o,
-                    "target": self.ANS_MAPPING[a[-1]],
-                    "frame_idx": f
-                }
-            )
-
-        return results
+        return [{
+            "qid": q,
+            "prediction": o,
+            "target": self.label_mapping[a[-1]],
+            "frame_idx": f
+        } for a, q, o, f in zip(answer, qid, output_text, frame_idx)]
 
     def after_evaluation(self, val_result, split_name, epoch, **kwargs):
-        eval_result_file = self.save_result(
+        result_file = self.save_result(
             result=val_result,
             result_dir=registry.get_path("result_dir"),
             filename="{}_epoch{}".format(split_name, epoch)
         )
 
         metrics = self._report_metrics(
-            eval_result_file=eval_result_file, split_name=split_name
+            result_file=result_file, split_name=split_name
         )
 
         return metrics
 
     @main_process
-    def _report_metrics(self, eval_result_file, split_name):
-        results = json.load(open(eval_result_file))
-        total_num = len(results)
-        acc = 0
-        qtype_correct_dict = {}
-        qtype_total_dict = {}
-        for r in results:    
-            qtype = r['qid'].split('_')[0]
-            if qtype not in qtype_total_dict:
-                qtype_total_dict[qtype] = 1
-            else:
-                qtype_total_dict[qtype] += 1 
+    def _report_metrics(self, result_file, split_name):
+        results = json.load(open(result_file))
+        metrics, answer_type = {}, {}
 
-            if r['prediction'] == r['target']:
-                acc += 1
-                if qtype not in qtype_correct_dict:
-                    qtype_correct_dict[qtype] = 1
-                else:
-                    qtype_correct_dict[qtype] += 1 
-        
-        metrics = {"agg_metrics": acc/total_num , 'total':total_num}
-        
-        for qtype in qtype_total_dict:
-            metrics[qtype] = qtype_correct_dict[qtype] / qtype_total_dict[qtype] * 100
-            
-        # for STAR
-        if ('Interaction' in metrics) and ('Sequence' in metrics) and ('Prediction' in metrics) and ('Feasibility' in metrics):
-            metrics["agg_metrics"] = (metrics['Interaction'] + metrics['Sequence'] + metrics['Prediction'] + metrics['Feasibility']) / 4
+        logging.info("Starting VideoQA evaluation.")
 
-        log_stats = {split_name: {k: v for k, v in metrics.items()}}
+        correct, total = 0, len(results)
+        for result in results:
+            question_id = result["qid"]
+            if question_id not in answer_type:
+                answer_type[question_id] = {"correct" : 0, "total" : 0}
+
+            if result["prediction"] == result["target"]:
+                correct += 1
+                answer_type[question_id]["correct"] += 1
+
+            answer_type[question_id]["total"] += 1
+
+        overall_acc = correct / total
+        metrics["agg_metrics"] = overall_acc
+        metrics["total"] = total
+        for question_id in answer_type:
+            metrics[question_id] = answer_type[question_id]["correct"] / answer_type[question_id]["total"]
+
+        logging.info("Overall Accuracy is: %.6f\n" % overall_acc)
+        logging.info("Per Answer Type Accuracy is the following:")
+
+        for question_id in answer_type:
+            logging.info(
+                "%s : %.02f"
+                % (question_id, answer_type[question_id]["correct"] / answer_type[question_id]["total"])
+            )
+            metrics[question_id] = answer_type[question_id]["correct"] / answer_type[question_id]["total"]
 
         with open(
             os.path.join(registry.get_path("output_dir"), "evaluate.txt"), "a"
         ) as f:
-            f.write(json.dumps(log_stats) + "\n")
+            f.write(json.dumps(metrics) + "\n")
 
         logging.info(metrics)
         return metrics
