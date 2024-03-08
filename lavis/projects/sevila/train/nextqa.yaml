@@ -8,11 +8,8 @@ model:
   model_type: pretrain_flant5xl
   load_finetuned: True
   finetuned: 'https://huggingface.co/Shoubin/SeViLA/resolve/main/sevila_pretrained.pth'
-  use_grad_checkpoint: False
-  freeze_vit: True
-  frame_num: 8
-  answer_num: 5
-  task: train_loc_freeze_qa_vid
+  num_keyframes: 8
+  task: train_answerer
 
 datasets:
   nextqa: # name of the dataset builder
@@ -22,7 +19,7 @@ datasets:
           n_frms: 4
           image_size: 224
         eval:
-          name: "blip_video_eval"
+          name: "blip2_video_eval"
           n_frms: 4
           image_size: 224
     text_processor:

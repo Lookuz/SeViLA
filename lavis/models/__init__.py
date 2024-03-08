@@ -34,7 +34,7 @@ from lavis.models.blip2_models.blip2 import Blip2Base
 from lavis.models.blip2_models.blip2_opt import Blip2OPT
 from lavis.models.blip2_models.blip2_t5 import Blip2T5
 from lavis.models.blip2_models.blip2_fmr import Blip2FMR
-from lavis.models.sevila_models.sevila import SeViLA
+from lavis.models.sevila_models.sevila import SeViLAForVideoQA
 
 from lavis.models.blip2_models.blip2_qformer import Blip2Qformer
 from lavis.models.blip2_models.blip2_image_text_matching import Blip2ITM
@@ -84,7 +84,7 @@ __all__ = [
     "XBertLMHeadDecoder",
     "GPTDialogue",
     "Blip2FMR",
-    "SeViLA",
+    "SeViLAForVideoQA",
 ]
 
 

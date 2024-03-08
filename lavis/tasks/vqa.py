@@ -417,7 +417,7 @@ class FrameQA(BaseTask):
     
 
 @registry.register_task("videoqa")
-class VideoQA(BaseTask):
+class VideoQATask(BaseTask):
     def __init__(self, 
         # Generation hyperparameters
         do_sample=False,
@@ -442,19 +442,35 @@ class VideoQA(BaseTask):
         self.num_return_sequences = num_return_sequences
 
         self.label_mapping = SEVILA_ANSWER_MAP
+    
+    @classmethod
+    def setup_task(cls, cfg):
+        run_cfg = cfg.run_cfg
+
+        return cls(
+            do_sample=run_cfg.get("do_sample", True),
+            top_p=run_cfg.get("top_p", 0.9),
+            temperature=run_cfg.get("temperature", 1.),
+            max_new_tokens=run_cfg.get("max_new_tokens", 30),
+            min_length=run_cfg.get("min_length", 1),
+            num_beams=run_cfg.get("num_beams", 1),
+            repetition_penalty=run_cfg.get("repetition_penalty", 1.),
+            length_penalty=run_cfg.get("length_penalty", 1.),
+            num_return_sequences=run_cfg.get("num_return_sequences", 1)
+        )
 
     def valid_step(self, model, samples):
         outputs = model.predict_answers(samples)
 
-        answer, qid, output_text = outputs["answer"], outputs["qid"], outputs['output_text']
-        frame_idx = [0 for i in range(len(qid))]
+        answer, qid, output_text = outputs["gt_ans"], outputs["question_id"], outputs['pred_ans']
+        # frame_idx = [0 for i in range(len(qid))]
 
         return [{
             "qid": q,
             "prediction": o,
-            "target": self.label_mapping[a[-1]],
-            "frame_idx": f
-        } for a, q, o, f in zip(answer, qid, output_text, frame_idx)]
+            "target": self.label_mapping[a[-1]]
+            # "frame_idx": f
+        } for a, q, o in zip(answer, qid, output_text)]
 
     def after_evaluation(self, val_result, split_name, epoch, **kwargs):
         result_file = self.save_result(

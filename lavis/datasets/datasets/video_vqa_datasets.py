@@ -112,13 +112,12 @@ class NExTQADataset(MultimodalClassificationDataset, __DisplMixin):
             self.localizer_postfix
         ))
 
-        answers = f"Option {self.labels_to_options[label]}"
+        answer = f"Option {self.labels_to_options[label]}"
 
         return {
             "video": frms,
-            "qa_input": qa_prompt,
-            "loc_input": loc_prompt,
-            "qa_output": answers,
+            "text_input": qa_prompt,
+            "localizer_input": loc_prompt,
+            "answer": answer,
             "question_id": str(ann['qid']),
-            'duration': 1
         }

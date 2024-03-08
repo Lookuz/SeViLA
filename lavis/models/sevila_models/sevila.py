@@ -21,7 +21,7 @@ from lavis.models.blip2_models.modeling_t5 import T5ForConditionalGeneration, T5
 from lavis.common.const import *
 
 @registry.register_model("sevila")
-class SeViLA(Blip2Base):
+class SeViLAForVideoQA(Blip2Base):
     """
     BLIP2 T5 model.
     Supported model types:
@@ -38,10 +38,14 @@ class SeViLA(Blip2Base):
         "caption_coco_flant5xl": "configs/models/blip2/blip2_caption_flant5xl.yaml",
     }
 
-    def __init__( self, img_size=224, drop_path_rate=0,
-        use_grad_checkpoint=False, vit_precision="fp16", freeze_vit=True,
-        num_query_token=32, t5_model="google/flan-t5-xl", prompt="",
-        max_txt_len=32, frame_num=8, answer_num=5, apply_lemmatizer=False, task='qa'):
+    def __init__(
+        self, 
+        num_query_token=32, 
+        num_keyframes=8,
+        t5_model="google/flan-t5-xl", 
+        vit_model="eva_clip_g",
+        task=SEVILA_FINETUNE_ANSWERER
+    ):
         """
         apply_lemmatizer: when set to True, postprocess predict_answers() result with lemmas.
         """
@@ -66,29 +70,28 @@ class SeViLA(Blip2Base):
         self.Qformer_answerer, self.projection_answerer, self.query_tokens_answerer = self.init_Qformer(self.t5_model, num_query_token, self.visual_encoder.num_features)
         self.Qformer_localizer, self.projection_localizer, self.query_tokens_localizer = self.init_Qformer(self.t5_model, num_query_token, self.visual_encoder.num_features)
 
-        if 'freeze_qa' in task:
+        if self.task != SEVILA_FINETUNE_ANSWERER:
             for param in self.Qformer_answerer.parameters():
                 param.requires_grad = False
             self.query_tokens_answerer.requires_grad = False
             self.projection_answerer.requires_grad = False
 
-        if 'freeze_loc' in task:
+        if self.task != SEVILA_REFINE_LOCALIZER:
             for param in self.Qformer_localizer.parameters():
                 param.requires_grad = False
             self.query_tokens_localizer.requires_grad = False
             self.projection_localizer.requires_grad = False
 
-        answer_id = [71, 272, 205, 309, 262] # A B C D E
-        self.answer_ids = answer_id[:answer_num]
+        self.answer_ids = SEVILA_ANSWER_IDS
         self.pseudo_label_positive = SEVILA_PSEUDO_LABEL_POSITIVE
         self.pseudo_label_negative = SEVILA_PSEUDO_LABEL_NEGATIVE
         self.id_positive = SEVILA_ID_POSITIVE
         
-        self._apply_lemmatizer = apply_lemmatizer
-        self._lemmatizer = None
+        # self._apply_lemmatizer = apply_lemmatizer
+        # self._lemmatizer = None
         
         self.max_length = SEVILA_MAX_TEXT_LENGTH
-        self.num_keyframes = frame_num
+        self.num_keyframes = num_keyframes
         self.answer_map = {'A':0, 'B':1, 'C':2, 'D':3, 'E':4}
         self.frame_prefix = ['Frame: ']
         self.frame_seq_prefix = self.repeat_frame_prefix(self.num_keyframes)
@@ -377,10 +380,10 @@ class SeViLA(Blip2Base):
         visual_tokens = self.visual_encoder(video) 
         visual_attention_mask = torch.ones(visual_tokens.size()[:-1], dtype=torch.long).to(video.device) # bt n c
 
-        answerer_input_text, localizer_input_text, answer_text = samples['qa_input'], samples['loc_input'], samples['qa_output']
+        answerer_input_text, localizer_input_text, answer_text = samples['text_input'], samples['localizer_input'], samples['answer']
         
         # Localizer self-refinement
-        if 'train_loc' in self.task:
+        if self.task == SEVILA_REFINE_LOCALIZER:
             with torch.no_grad(), torch.cuda.amp.autocast(dtype=self.dtype):
                 # Perform forward using answerer QFormer
                 answerer_outputs = self.forward_t5(
@@ -410,7 +413,8 @@ class SeViLA(Blip2Base):
                 loss = localizer_outputs.loss
         
         # Finetune answerer with localizer
-        elif 'train_qa_with_loc' in self.task:
+        # elif 'train_qa_with_loc' in self.task:
+        elif self.task == SEVILA_FINETUNE_ANSWERER:
             with torch.no_grad(), torch.cuda.amp.autocast(dtype=self.dtype):
                 localizer_outputs = self.generate_t5(
                     self.ln_vision_localizer(visual_tokens.detach().clone()), visual_attention_mask.detach().clone(),
@@ -470,8 +474,8 @@ class SeViLA(Blip2Base):
             captions (list): A list of strings of length batch_size * num_captions.
         """
         video, qid = samples["video"], samples['question_id']
-        answerer_input_text, localizer_input_text = samples['qa_input'], samples['loc_input']
-        answer = samples['qa_output'] if 'qa_output' in samples else None
+        answerer_input_text, localizer_input_text = samples['text_input'], samples['localizer_input']
+        answer = samples['answer'] if 'answer' in samples else None
 
         with torch.cuda.amp.autocast(dtype=torch.bfloat16):
             B, T, C, W, H = video.shape        
@@ -515,48 +519,63 @@ class SeViLA(Blip2Base):
             preds = torch.argmax(logits, dim=-1).cpu().tolist()
     
         return {
-            'output_text' : preds,
-            'answer' : answer,
-            'qid' : qid
+            'pred_ans' : preds,
+            'gt_ans' : answer,
+            'question_id' : qid
         }
+
+    # @classmethod
+    # def from_config(cls, cfg):
+    #     img_size = cfg.get("image_size")
+    #     num_query_token = cfg.get("num_query_token")
+    #     t5_model = cfg.get("t5_model")
+
+    #     drop_path_rate = cfg.get("drop_path_rate", 0)
+    #     use_grad_checkpoint = cfg.get("use_grad_checkpoint", False)
+    #     vit_precision = cfg.get("vit_precision", "fp16")
+    #     freeze_vit = cfg.get("freeze_vit", True)
+
+    #     prompt = cfg.get("prompt", "")
+    #     max_txt_len = cfg.get("max_txt_len", 32)
+    #     frame_num = cfg.get("frame_num", 8)
+    #     answer_num = cfg.get("answer_num", 5) 
+    #     apply_lemmatizer = cfg.get("apply_lemmatizer", False)
+    #     task = cfg.get("task", 'train_loc_freeze_qa')
+
+    #     model = cls(
+    #         img_size=img_size,
+    #         drop_path_rate=drop_path_rate,
+    #         use_grad_checkpoint=use_grad_checkpoint,
+    #         vit_precision=vit_precision,
+    #         freeze_vit=freeze_vit,
+    #         num_query_token=num_query_token,
+    #         t5_model=t5_model,
+    #         prompt=prompt,
+    #         max_txt_len=max_txt_len,
+    #         apply_lemmatizer=apply_lemmatizer,
+    #         frame_num=frame_num,
+    #         answer_num=answer_num,
+    #         task=task,
+    #     )
+    #     model.load_checkpoint_from_config(cfg)
+    #     # for sevila with qvh pretraining
+    #     # need load blip-2 q-former ckpt to q-former_loc
+    #     if 'loc' in task and 'qvh' not in task:
+    #        model.load_qformer_loc()
+
+    #     return model
 
     @classmethod
     def from_config(cls, cfg):
-        img_size = cfg.get("image_size")
-        num_query_token = cfg.get("num_query_token")
-        t5_model = cfg.get("t5_model")
-
-        drop_path_rate = cfg.get("drop_path_rate", 0)
-        use_grad_checkpoint = cfg.get("use_grad_checkpoint", False)
-        vit_precision = cfg.get("vit_precision", "fp16")
-        freeze_vit = cfg.get("freeze_vit", True)
-
-        prompt = cfg.get("prompt", "")
-        max_txt_len = cfg.get("max_txt_len", 32)
-        frame_num = cfg.get("frame_num", 8)
-        answer_num = cfg.get("answer_num", 5) 
-        apply_lemmatizer = cfg.get("apply_lemmatizer", False)
-        task = cfg.get("task", 'train_loc_freeze_qa')
+        num_query_token = cfg.get("num_query_token", 32)
+        num_keyframes = cfg.get("num_keyframes", 4)
+        task = cfg.get("task")
 
         model = cls(
-            img_size=img_size,
-            drop_path_rate=drop_path_rate,
-            use_grad_checkpoint=use_grad_checkpoint,
-            vit_precision=vit_precision,
-            freeze_vit=freeze_vit,
             num_query_token=num_query_token,
-            t5_model=t5_model,
-            prompt=prompt,
-            max_txt_len=max_txt_len,
-            apply_lemmatizer=apply_lemmatizer,
-            frame_num=frame_num,
-            answer_num=answer_num,
-            task=task,
+            num_keyframes=num_keyframes,
+            task=task
         )
         model.load_checkpoint_from_config(cfg)
-        # for sevila with qvh pretraining
-        # need load blip-2 q-former ckpt to q-former_loc
-        if 'loc' in task and 'qvh' not in task:
-           model.load_qformer_loc()
 
         return model

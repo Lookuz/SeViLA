@@ -28,18 +28,6 @@ class VideoQABuilder(BaseDatasetBuilder):
 
         return datasets
 
-# class MCVideoQABuilder(BaseDatasetBuilder):
-#     train_dataset_cls = NExTQADataset
-#     eval_dataset_cls = NExTQADataset
-
-#     def build(self):
-#         datasets = super().build()
-
-#         for split in datasets:
-#             datasets[split]._load_auxiliary_mappings()
-
-#         return datasets
-
 @registry.register_builder("msrvtt_qa")
 class MSRVTTQABuilder(VideoQABuilder):
     DATASET_CONFIG_DICT = {
@@ -54,7 +42,7 @@ class MSVDQABuilder(VideoQABuilder):
     }
 
 @registry.register_builder("nextqa")
-class NextQABuilder(BaseDatasetBuilder):
+class NExTQABuilder(BaseDatasetBuilder):
     DATASET_CONFIG_DICT = {
         "default": "configs/datasets/nextqa/defaults_qa.yaml",
     }
@@ -68,33 +56,3 @@ class NextQABuilder(BaseDatasetBuilder):
             datasets[split]._load_auxiliary_mappings()
 
         return datasets
-
-# @registry.register_builder("star")
-# class STARBuilder(MCVideoQABuilder):
-#     DATASET_CONFIG_DICT = {
-#         "default": "configs/datasets/star/defaults_qa.yaml",
-#     }
-
-# @registry.register_builder("tvqa")
-# class TVQABuilder(MCVideoQABuilder):
-#     DATASET_CONFIG_DICT = {
-#         "default": "configs/datasets/tvqa/defaults_qa.yaml",
-#     }
-    
-# @registry.register_builder("how2qa")
-# class How2QABuilder(MCVideoQABuilder):
-#     DATASET_CONFIG_DICT = {
-#         "default": "configs/datasets/how2qa/defaults_qa.yaml",
-#     }
-
-# @registry.register_builder("vlep")
-# class VLEPBuilder(MCVideoQABuilder):
-#     DATASET_CONFIG_DICT = {
-#         "default": "configs/datasets/vlep/defaults_qa.yaml",
-#     }
-     
-# @registry.register_builder("qvh")
-# class QVHBuilder(MCVideoQABuilder):
-#     DATASET_CONFIG_DICT = {
-#         "default": "configs/datasets/qvh/defaults.yaml",
-#     }

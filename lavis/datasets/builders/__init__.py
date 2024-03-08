@@ -23,13 +23,10 @@ from lavis.datasets.builders.classification_builder import (
     SNLIVisualEntailmentBuilder,
 )
 from lavis.datasets.builders.imagefolder_builder import ImageNetBuilder
-# from lavis.datasets.builders.video_qa_builder import (
-#     MSRVTTQABuilder, MSVDQABuilder, MCVideoQABuilder, 
-#     NextQABuilder, STARBuilder, TVQABuilder, How2QABuilder, VLEPBuilder, QVHBuilder)
 from lavis.datasets.builders.video_qa_builder import (
     MSRVTTQABuilder, 
     MSVDQABuilder, 
-    NextQABuilder
+    NExTQABuilder
 )
 
 from lavis.datasets.builders.vqa_builder import (
@@ -71,13 +68,7 @@ __all__ = [
     "VGCaptionBuilder",
     "VGVQABuilder",
     "AVSDDialBuilder",
-    # "MCVideoQABuilder",
-    "NextQABuilder",
-    # "STARBuilder",
-    # "How2QABuilder",
-    # "TVQABuilder",
-    # "VLEPBuilder",
-    # "QVHBuilder"
+    "NExTQABuilder"
 ]
 
 

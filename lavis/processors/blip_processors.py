@@ -280,7 +280,7 @@ class Blip2ImageTrainProcessor(BlipImageBaseProcessor):
         )
 
 @registry.register_processor("blip2_video_train")
-class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
+class Blip2VideoTrainProcessor(BaseProcessor):
     def __init__(
         self, 
         image_size=384,
@@ -289,10 +289,16 @@ class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
         min_scale=0.5,
         max_scale=1.0,
         n_frms=MAX_INT,
+        sampling="random"
     ):
-        super().__init__(mean=mean, std=std, n_frms=n_frms)
+        if mean is None:
+            mean = (0.48145466, 0.4578275, 0.40821073)
+        if std is None:
+            std = (0.26862954, 0.26130258, 0.27577711)
 
         self.image_size = image_size
+        self.n_frms = n_frms
+        self.sampling = sampling
 
         self.transform = transforms.Compose(
             [
@@ -305,7 +311,7 @@ class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
                 ToTHWC(),  # C, T, H, W -> T, H, W, C
                 ToUint8(),
                 transforms_video.ToTensorVideo(),  # T, H, W, C -> C, T, H, W
-                self.normalize,
+                transforms_video.NormalizeVideo(mean=mean, std=std),
             ]
         )
 
@@ -316,7 +322,7 @@ class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
             n_frms=self.n_frms,
             height=self.image_size,
             width=self.image_size,
-            sampling="random",
+            sampling=self.sampling,
             clip_proposal=clip_proposal,
             return_indices=True
         )
@@ -328,7 +334,7 @@ class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
         if cfg is None:
             cfg = OmegaConf.create()
 
-        image_size = cfg.get("image_size", 364)
+        image_size = cfg.get("image_size", 224)
 
         mean = cfg.get("mean", None)
         std = cfg.get("std", None)
@@ -347,18 +353,24 @@ class Blip2VideoTrainProcessor(BlipVideoBaseProcessor):
         )
 
 
-@registry.register_processor("blip_video_eval")
-class BlipVideoEvalProcessor(BlipVideoBaseProcessor):
-    def __init__(self, image_size=384, mean=None, std=None, n_frms=MAX_INT):
-        super().__init__(mean=mean, std=std, n_frms=n_frms)
+@registry.register_processor("blip2_video_eval")
+class Blip2VideoEvalProcessor(BlipImageBaseProcessor):
+    def __init__(self, image_size=384, mean=None, std=None, n_frms=MAX_INT, sampling="uniform"):
+        if mean is None:
+            mean = (0.48145466, 0.4578275, 0.40821073)
+        if std is None:
+            std = (0.26862954, 0.26130258, 0.27577711)
 
         self.image_size = image_size
+        self.n_frms = n_frms
+        self.sampling = sampling
+        
         self.transform = transforms.Compose(
             [
                 ToUint8(),  # C, T, H, W
                 ToTHWC(),  # T, H, W, C
                 transforms_video.ToTensorVideo(),  # C, T, H, W
-                self.normalize,  # C, T, H, W
+                transforms_video.NormalizeVideo(mean=mean, std=std),  # C, T, H, W
             ]
         )
         self.n_frms = n_frms
@@ -369,7 +381,7 @@ class BlipVideoEvalProcessor(BlipVideoBaseProcessor):
             n_frms=self.n_frms,
             height=self.image_size,
             width=self.image_size,
-            sampling="uniform",
+            sampling=self.sampling,
             clip_proposal=clip_proposal,
             return_indices=True
         )
@@ -381,7 +393,7 @@ class BlipVideoEvalProcessor(BlipVideoBaseProcessor):
         if cfg is None:
             cfg = OmegaConf.create()
 
-        image_size = cfg.get("image_size", 256)
+        image_size = cfg.get("image_size", 224)
 
         mean = cfg.get("mean", None)
         std = cfg.get("std", None)
