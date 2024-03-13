@@ -4,7 +4,6 @@
  SPDX-License-Identifier: BSD-3-Clause
  For full license text, see the LICENSE file in the repo root or https://opensource.org/licenses/BSD-3-Clause
 """
-import logging
 from typing import Union
 
 from einops import rearrange
@@ -87,16 +86,16 @@ class SeViLAForVideoQA(Blip2Base):
         self.pseudo_label_negative = SEVILA_PSEUDO_LABEL_NEGATIVE
         self.id_positive = SEVILA_ID_POSITIVE
         
-        # self._apply_lemmatizer = apply_lemmatizer
-        # self._lemmatizer = None
-        
         self.max_length = SEVILA_MAX_TEXT_LENGTH
         self.num_keyframes = num_keyframes
         self.answer_map = {'A':0, 'B':1, 'C':2, 'D':3, 'E':4}
         self.frame_prefix = ['Frame: ']
         self.frame_seq_prefix = self.repeat_frame_prefix(self.num_keyframes)
 
-        self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
+        if torch.backends.mps.is_available():
+            self.dtype = torch.bfloat16
+        else:
+            self.dtype = torch.bfloat16 if torch.cuda.is_bf16_supported() else torch.float16
 
     def init_vision_encoder(
         self, 
@@ -231,12 +230,13 @@ class SeViLAForVideoQA(Blip2Base):
         # Frame sequence visual embeddings - (B, T, N, D) (E.g. for QA fine-tuning/inference)
         # Here T refers to the number of keyframes
         else:
+            B, T, _, _ = visual_tokens.shape
+
             frame_prefix_id, frame_prefix_mask = self.get_visual_prefix_tokens(
                 visual_tokens=visual_tokens, B=B
             ) # (B, T, Nf)
 
             # Stack back to (B*T, N, D) for query token extraction
-            B, T, _, _ = visual_tokens.shape
             visual_tokens = rearrange(visual_tokens, "b t n d -> (b t) n d")
             visual_attention_mask = rearrange(visual_attention_mask, "b t n -> (b t) n")
 
@@ -328,7 +328,8 @@ class SeViLAForVideoQA(Blip2Base):
         visual_tokens, visual_attention_mask,
         input_text, output_text,
         Qformer, query_tokens, projection,
-        video_shape
+        video_shape,
+        reduction="mean"
     ):
         """
         Performs a forward function through the T5 model, constructing the necessary tokens using
@@ -356,7 +357,8 @@ class SeViLAForVideoQA(Blip2Base):
             attention_mask=attention_mask,
             labels=output_ids,
             decoder_attention_mask=output_attention_mask,
-            return_dict=True
+            return_dict=True,
+            reduction=reduction
         )
 
         return outputs
@@ -370,7 +372,8 @@ class SeViLAForVideoQA(Blip2Base):
         repetition_penalty=1.0, 
         length_penalty=1.0,
         num_return_sequences=1, 
-        temperature=1,):
+        temperature=1
+    ):
 
         video = samples["video"]
 
@@ -413,7 +416,6 @@ class SeViLAForVideoQA(Blip2Base):
                 loss = localizer_outputs.loss
         
         # Finetune answerer with localizer
-        # elif 'train_qa_with_loc' in self.task:
         elif self.task == SEVILA_FINETUNE_ANSWERER:
             with torch.no_grad(), torch.cuda.amp.autocast(dtype=self.dtype):
                 localizer_outputs = self.generate_t5(
@@ -458,21 +460,9 @@ class SeViLAForVideoQA(Blip2Base):
         num_beams=1, max_new_tokens=30,
         min_length=1, top_p=0.9,
         repetition_penalty=1.0, length_penalty=1.0,
-        num_return_sequences=1, temperature=1,):
-        """
-        Args:
-            samples (dict): A dictionary containing the following keys:
-                - image (torch.Tensor): A tensor of shape (batch_size, 3, H, W)
-            use_nucleus_sampling (bool): Whether to use nucleus sampling. If False, use top-k sampling.
-            num_beams (int): Number of beams for beam search. 1 means no beam search.
-            max_length (int): The maximum length of the sequence to be generated.
-            min_length (int): The minimum length of the sequence to be generated.
-            top_p (float): The cumulative probability for nucleus sampling.
-            repetition_penalty (float): The parameter for repetition penalty. 1.0 means no penalty.
-            num_captions (int): Number of captions to be generated for each image.
-        Returns:
-            captions (list): A list of strings of length batch_size * num_captions.
-        """
+        num_return_sequences=1, temperature=1
+    ):
+       
         video, qid = samples["video"], samples['question_id']
         answerer_input_text, localizer_input_text = samples['text_input'], samples['localizer_input']
         answer = samples['answer'] if 'answer' in samples else None
@@ -523,47 +513,6 @@ class SeViLAForVideoQA(Blip2Base):
             'gt_ans' : answer,
             'question_id' : qid
         }
-
-    # @classmethod
-    # def from_config(cls, cfg):
-    #     img_size = cfg.get("image_size")
-    #     num_query_token = cfg.get("num_query_token")
-    #     t5_model = cfg.get("t5_model")
-
-    #     drop_path_rate = cfg.get("drop_path_rate", 0)
-    #     use_grad_checkpoint = cfg.get("use_grad_checkpoint", False)
-    #     vit_precision = cfg.get("vit_precision", "fp16")
-    #     freeze_vit = cfg.get("freeze_vit", True)
-
-    #     prompt = cfg.get("prompt", "")
-    #     max_txt_len = cfg.get("max_txt_len", 32)
-    #     frame_num = cfg.get("frame_num", 8)
-    #     answer_num = cfg.get("answer_num", 5) 
-    #     apply_lemmatizer = cfg.get("apply_lemmatizer", False)
-    #     task = cfg.get("task", 'train_loc_freeze_qa')
-
-    #     model = cls(
-    #         img_size=img_size,
-    #         drop_path_rate=drop_path_rate,
-    #         use_grad_checkpoint=use_grad_checkpoint,
-    #         vit_precision=vit_precision,
-    #         freeze_vit=freeze_vit,
-    #         num_query_token=num_query_token,
-    #         t5_model=t5_model,
-    #         prompt=prompt,
-    #         max_txt_len=max_txt_len,
-    #         apply_lemmatizer=apply_lemmatizer,
-    #         frame_num=frame_num,
-    #         answer_num=answer_num,
-    #         task=task,
-    #     )
-    #     model.load_checkpoint_from_config(cfg)
-    #     # for sevila with qvh pretraining
-    #     # need load blip-2 q-former ckpt to q-former_loc
-    #     if 'loc' in task and 'qvh' not in task:
-    #        model.load_qformer_loc()
-
-    #     return model
 
     @classmethod
     def from_config(cls, cfg):

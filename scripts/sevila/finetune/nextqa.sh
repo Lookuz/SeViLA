@@ -18,7 +18,7 @@ n_frms=32
 CUDA_VISIBLE_DEVICES=0,1 python -m torch.distributed.run --nproc_per_node=2 train.py \
     --cfg-path ${cfg_path} \
     --options run.output_dir=${result_dir}_${exp_name} \
-    model.frame_num=4 \
+    model.num_keyframes=4 \
     model.task=${task} \
     model.finetuned=${checkpoint} \
     datasets.nextqa.vis_processor.train.n_frms=${n_frms} \
