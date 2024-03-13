@@ -48,19 +48,6 @@ class Blip2Base(BaseModel):
         query_tokens.data.normal_(mean=0.0, std=encoder_config.initializer_range)
         return Qformer, query_tokens
     
-    # @classmethod
-    # def init_TemporalQFormer(cls, num_of_frame):
-    #     encoder_config = BertConfig.from_pretrained("bert-base-uncased")
-    #     encoder_config.query_length = num_of_frame
-    #     Qformer = BertLMHeadModel.from_pretrained(
-    #     "bert-base-uncased", config=encoder_config
-    #     )                 
-    #     query_tokens = nn.Parameter(
-    #         torch.zeros(1, num_of_frame, 1, encoder_config.hidden_size)
-    #     )
-    #     query_tokens.data.normal_(mean=0.0, std=encoder_config.initializer_range)
-    #     return Qformer, query_tokens
-
     @classmethod
     def init_vision_encoder(
         cls, img_size, drop_path_rate, use_grad_checkpoint, precision
@@ -70,17 +57,6 @@ class Blip2Base(BaseModel):
         )
         ln_vision = LayerNorm(visual_encoder.num_features)
         return visual_encoder, ln_vision
-
-    # @classmethod
-    # def init_vision_encoder_sevila(
-    #     cls, img_size, drop_path_rate, use_grad_checkpoint, precision
-    # ):
-    #     visual_encoder = create_eva_vit_g(
-    #         img_size, drop_path_rate, use_grad_checkpoint, precision
-    #     )
-    #     ln_vision = LayerNorm(visual_encoder.num_features)
-    #     ln_vision2 = LayerNorm(visual_encoder.num_features) 
-    #     return visual_encoder, ln_vision, ln_vision2
 
     def load_from_pretrained(self, url_or_filename):
         if is_url(url_or_filename):
@@ -101,13 +77,6 @@ class Blip2Base(BaseModel):
         logging.info("load checkpoint from %s" % url_or_filename)
 
         return msg
-    
-    # def load_qformer_loc(self):
-    #     url_or_filename = '/nas-hdd/shoubin/pretrained_model/hub/checkpoints/qformer_loc.pth'
-    #     checkpoint = torch.load(url_or_filename, map_location="cpu")
-    #     state_dict = checkpoint["model"]
-    #     msg = self.load_state_dict(state_dict, strict=False)
-    #     logging.info("load checkpoint from %s" % url_or_filename)
 
 def disabled_train(self, mode=True):
     """Overwrite model.train with this function to make sure train/eval mode
