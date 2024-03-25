@@ -12,7 +12,7 @@ from collections import OrderedDict
 from lavis.datasets.datasets.multimodal_classification_datasets import (
     MultimodalClassificationDataset,
 )
-from lavis.common.const import SEVILA_ANSWERER_PROMPT_POSTFIX, SEVILA_LOCALIZER_PROMPT_POSTFIX
+from lavis.common.const import *
 
 class __DisplMixin:
     def displ_item(self, index):
@@ -67,6 +67,7 @@ class NExTQADataset(MultimodalClassificationDataset, __DisplMixin):
 
         self.answerer_postfix = SEVILA_ANSWERER_PROMPT_POSTFIX
         self.localizer_postfix = SEVILA_LOCALIZER_PROMPT_POSTFIX
+        self.frame_pred_postfix = CONVILA_FRAME_PREDICTION_PROMPT_POSTFIX
 
         self._build_class_labels()
 
@@ -112,12 +113,21 @@ class NExTQADataset(MultimodalClassificationDataset, __DisplMixin):
             self.localizer_postfix
         ))
 
+        # Added for frame prediction objective
+        frame_pred_postfix = self.frame_pred_postfix.format(1, 4)
+        frame_pred_prompt = " ".join((
+            f"Question: {question}",
+            f"Answer: Option {self.labels_to_options[label]}",
+            frame_pred_postfix
+        ))
+
         answer = f"Option {self.labels_to_options[label]}"
 
         return {
             "video": frms,
             "text_input": qa_prompt,
             "localizer_input": loc_prompt,
+            "frame_pred_input" : frame_pred_prompt,
             "answer": answer,
             "question_id": str(ann['qid']),
         }

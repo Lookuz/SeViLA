@@ -458,6 +458,23 @@ class VideoQATask(BaseTask):
             length_penalty=run_cfg.get("length_penalty", 1.),
             num_return_sequences=run_cfg.get("num_return_sequences", 1)
         )
+    
+    def train_epoch(
+        self, epoch, 
+        model, data_loader, 
+        optimizer, lr_scheduler, scaler=None, 
+        cuda_enabled=False, log_freq=50, accum_grad_iters=1
+    ):
+        try:
+            model.module.toggle_training_mode()
+            if model.module.train_answerer:
+                logging.info("Fine-tuning answerer.")
+            else:
+                logging.info("Refining localizer.")
+        except:
+            logging.info("Toggling training mode failed. If the model does not support toggle_training_mode, this is expected.")
+
+        return super().train_epoch(epoch, model, data_loader, optimizer, lr_scheduler, scaler, cuda_enabled, log_freq, accum_grad_iters)
 
     def valid_step(self, model, samples):
         outputs = model.predict_answers(samples)

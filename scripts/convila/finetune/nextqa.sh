@@ -1,8 +1,8 @@
 result_dir="/home/users/nus/e0176617/SeViLA/outputs/nextqa"
-exp_name='finetune'
+exp_name='contrastive'
 checkpoint='checkpoints/sevila_pretrained.pth'
 cfg_path='lavis/projects/convila/train/nextqa.yaml'
-task='end-to-end'
+task='alternate'
 
 # Note: No spaces or dashes to be used in the data paths, as absolute paths are computed and formatted within the LAVIS code
 train_path='/scratch/users/nus/e0176617/datasets/nextqa/processed/train.json'
