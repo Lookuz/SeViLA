@@ -366,3 +366,42 @@ class ConViLAForVideoQA(SeViLAForVideoQA):
         model.load_checkpoint_from_config(cfg)
 
         return model
+
+@registry.register_model("blindqa")
+class BlindQAForVideoQA(ConViLAForVideoQA):
+    """
+    BlindQA implementation of SeViLA/ConViLA without the use of visual tokens
+    """
+    @torch.no_grad()
+    def predict_answers(self,
+        samples,
+        do_sample=False,
+        num_beams=1, max_new_tokens=30,
+        min_length=1, top_p=0.9,
+        repetition_penalty=1.0, length_penalty=1.0,
+        num_return_sequences=1, temperature=1
+    ):
+       
+        video, qid, answerer_input_text = samples["video"], samples['question_id'], samples['text_input']
+        answer = samples['answer'] if 'answer' in samples else None
+
+        with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+            input_ids, attention_mask = self.get_text_tokens(answerer_input_text, device=video.device)
+            input_embeds = self.t5_model.encoder.embed_tokens(input_ids)
+
+            outputs = self.t5_model.generate(
+                inputs_embeds=input_embeds, attention_mask=attention_mask,
+                do_sample=do_sample, top_p=top_p, temperature=temperature,
+                max_new_tokens=max_new_tokens, min_length=min_length, 
+                repetition_penalty=repetition_penalty, length_penalty=length_penalty, 
+                num_return_sequences=num_return_sequences, num_beams=num_beams,
+                return_dict_in_generate=True, output_hidden_states=True, output_scores=True
+        )
+            logits = outputs.scores[1][:, self.answer_ids]
+            preds = torch.argmax(logits, dim=-1).cpu().tolist()
+    
+        return {
+            'pred_ans' : preds,
+            'gt_ans' : answer,
+            'question_id' : qid
+        }
