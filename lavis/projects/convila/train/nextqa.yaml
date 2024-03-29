@@ -9,7 +9,7 @@ model:
   load_finetuned: True
   finetuned: 'https://huggingface.co/Shoubin/SeViLA/resolve/main/sevila_pretrained.pth'
   num_keyframes: 8
-  task: 'end-to-end'
+  task: multitask
 
 datasets:
   nextqa: # name of the dataset builder

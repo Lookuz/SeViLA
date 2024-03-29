@@ -63,13 +63,14 @@ class ConViLAForVideoQA(SeViLAForVideoQA):
 
         self.num_negatives = num_negatives
 
-        # Unfreeze both answerer and localizer for end to end training
-        if self.task == CONVILA_TRAIN_E2E:
+        # Unfreeze both answerer and localizer for end to end training/improved finetuning and refinement
+        if self.task in [CONVILA_TRAIN_E2E, CONVILA_TRAIN_MULTITASK]:
             for param in self.Qformer_answerer.parameters():
                 param.requires_grad = True
             self.query_tokens_answerer.requires_grad = True
             self.projection_answerer.requires_grad = True
 
+        if self.task in [CONVILA_TRAIN_E2E, CONVILA_TRAIN_REFINEPLUS]:
             for param in self.Qformer_localizer.parameters():
                 param.requires_grad = True
             self.query_tokens_localizer.requires_grad = True
@@ -77,7 +78,7 @@ class ConViLAForVideoQA(SeViLAForVideoQA):
 
         if self.task == CONVILA_TRAIN_ALTERNATE:
             self.train_answerer = False
-
+        
     def toggle_training_mode(self):
         """
         Call before each training epoch, including the first one to determine which subnetwork to train
@@ -117,6 +118,26 @@ class ConViLAForVideoQA(SeViLAForVideoQA):
         loss_div = torch.div(positive_losses, negative_losses_sum)
 
         return loss_div.mean()
+    
+    def scale_refinement_loss(self, loss : torch.Tensor, pseudo_labels):
+        """
+        Scales the element-wise (B, )-shaped loss according to frequency of frames and how far apart frames far
+        """
+        # Frame frequency penalty scaling
+        mask_positive = torch.tensor([x == self.pseudo_label_positive for x in pseudo_labels])
+        scale_frequency = torch.sum(mask_positive)
+
+        # Frame distance penalty scaling
+        idx_positive = mask_positive.nonzero().flatten()
+        scale_distance = torch.abs(torch.arange(loss.shape[0]) - torch.mean(idx_positive.float()))
+        scale_vector = torch.log10(scale_distance * scale_frequency + 1).to(loss.device)
+
+        # Remove penalty on "no" entries
+        scale_vector[~mask_positive] = 1
+
+        loss = torch.mean((1. / scale_vector) * loss)
+
+        return loss
 
     def forward(self, samples,
         do_sample=False,
@@ -345,9 +366,42 @@ class ConViLAForVideoQA(SeViLAForVideoQA):
                     video_shape=(B, T, C, H, W)
                 )
                 frame_pred_loss = outputs.loss
+
+            loss = frame_pred_loss + qa_loss
+
+        elif self.task == CONVILA_TRAIN_REFINEPLUS:
+            with torch.no_grad(), torch.cuda.amp.autocast(dtype=self.dtype):
+            # Perform forward using answerer QFormer
+                answerer_outputs = self.forward_t5(
+                    self.ln_vision_answerer(visual_tokens.detach().clone()), visual_attention_mask.detach().clone(),
+                    answerer_input_text, answer_text,
+                    self.Qformer_answerer, self.query_tokens_answerer, self.projection_answerer,
+                    video_shape=(B, T, C, H, W)
+                )
+
+                # Get predictions for answer set
+                answer_logits = answerer_outputs.logits.detach()[:, 1, self.answer_ids]
+                answer_preds = torch.argmax(answer_logits, dim=-1).reshape(B, T)
+                # Get pseudo-labels based on predicted answers
+                answer_labels = torch.tensor([self.answer_map[a[-1]] for a in answer_text]).reshape(-1, 1).repeat(1, T).to(answer_preds.device)
+                pseudo_labels = rearrange(answer_labels == answer_preds, "b t -> (b t)")
+                pseudo_labels = [
+                    self.pseudo_label_positive if x else self.pseudo_label_negative for x in pseudo_labels.tolist()
+                ] # (B * T)
+            
+            with torch.cuda.amp.autocast(dtype=torch.bfloat16):
+                localizer_outputs = self.forward_t5(
+                    self.ln_vision_localizer(visual_tokens), visual_attention_mask,
+                    localizer_input_text, pseudo_labels,
+                    self.Qformer_localizer, self.query_tokens_localizer, self.projection_localizer,
+                    video_shape=(B, T, C, H, W),
+                    reduction="none"
+                )
+                loss = localizer_outputs.loss # (B, ) element-wise loss
+                loss = self.scale_refinement_loss(loss, pseudo_labels)
         
         return {
-            "loss" : qa_loss + frame_pred_loss
+            "loss" : loss
         }
 
     @classmethod
@@ -381,7 +435,6 @@ class BlindQAForVideoQA(ConViLAForVideoQA):
         repetition_penalty=1.0, length_penalty=1.0,
         num_return_sequences=1, temperature=1
     ):
-       
         video, qid, answerer_input_text = samples["video"], samples['question_id'], samples['text_input']
         answer = samples['answer'] if 'answer' in samples else None
 
